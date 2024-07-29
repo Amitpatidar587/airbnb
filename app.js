@@ -11,6 +11,7 @@ const ExpressError=require('./utils/ExpressError')
  const {reviewSchema}=require('./schema')
 
 const path = require("path");
+const { strict } = require("assert");
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "/views"));
@@ -71,7 +72,7 @@ app.get("/listings/new", (req, res) => {
 //part 6
 app.get("/listings/:id/show",wrapAsync( async (req, res) => {
   let { id } = req.params;
-  const listing = await Listing.findById(id);
+  const listing = await Listing.findById(id).populate('reviews');
   console.log(listing);
   res.render("listings/show.ejs", { listing });
 })
@@ -110,7 +111,7 @@ app.delete("/listings/:id",wrapAsync(async(req,res)=>{
 })
 );
 
-//reviews
+//reviews post 
 app.post('/listings/:id/reviews',validateReview,wrapAsync(async(req,res)=>{
   let listing=await Listing.findById(req.params.id);
   let newReview=new Review(req.body.review);
@@ -121,9 +122,17 @@ app.post('/listings/:id/reviews',validateReview,wrapAsync(async(req,res)=>{
   await listing.save();
   console.log('review add successfull')
   res.redirect(`/listings/${listing._id}/show`);
-
 }
 ));
+
+//review delete route
+app.delete("/listings/:id/review/:reviewId",wrapAsync(async(req,res)=>{
+  let {id,reviewId}=req.params;
+  await Listing.findByIdAndUpdate(id,{$pull:{reviews:reviewId}})
+  await Review.findByIdAndDelete(reviewId);
+  res.redirect(`/listings/${id}/show`);
+}))
+
 
 // app.get("/testListing",async(req,res)=>{
 //     let sampleListing=new Listing({
