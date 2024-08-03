@@ -1,25 +1,19 @@
 const express = require("express");
 const app = express();
-const mongoose = require("mongoose");
-const Listing = require("./models/listing");
-const Review=require('./models/review')
-const methodOverride=require('method-override');
-const ejsMate= require('ejs-mate')
-const wrapAsync=require('./utils/wrapAsync')
-const ExpressError=require('./utils/ExpressError')
- const {listingSchema}=require('./schema')
- const {reviewSchema}=require('./schema')
-
+const methodOverride = require("method-override");
+const ejsMate = require("ejs-mate");
+const ExpressError = require("./utils/ExpressError");
+const session=require('express-session');
 const path = require("path");
-const { strict } = require("assert");
+const listingRouter = require("./routes/listing.js");
+const reviewRouter = require("./routes/review.js");
+const userRouter = require("./routes/user.js");
+const flash=require('connect-flash');
+const passport=require('passport');
+const LocalStrategy=require('passport-local');
+const User=require('./models/user.js');
 
-app.set("view engine", "ejs");
-app.set("views", path.join(__dirname, "/views"));
-app.use(express.urlencoded({extended:true}));
-app.use(methodOverride("_method"));
-app.engine('ejs',ejsMate);
-app.use(express.static(path.join(__dirname,'public')))
-
+const mongoose = require("mongoose");
 MONGO_URL = "mongodb://127.0.0.1:27017/wanderlust";
 main()
   .then(() => {
@@ -32,131 +26,73 @@ async function main() {
   await mongoose.connect(MONGO_URL);
 }
 
+//set method 
+app.set("view engine", "ejs");
+app.set("views", path.join(__dirname, "/views"));
+
+//use method
+app.use(express.urlencoded({ extended: true }));
+app.use(methodOverride("_method"));
+app.use(express.static(path.join(__dirname, "public")));
+app.engine("ejs", ejsMate);
+
+//session option
+const sessionOption={
+  secret:'mysupersecretcode',
+  resave:false,
+  saveUninitialized:true,
+  cookie:{
+    expires:Date.now()+ 7 * 24 * 60 * 60 * 1000,  //7 day  ke liye agr loguot krne k baad wapis aate ho to login karne ki need nahi he isme =((day * hour * minute * second * milisecond ))he  
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    httpOnly:true,
+  }
+}
+app.use(session(sessionOption));
+app.use(flash());
+
+app.use(passport.initialize());
+app.use(passport.session());
+passport.use(new LocalStrategy(User.authenticate()));
+
+
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
+
+app.use((req,res,next)=>{
+  res.locals.success=req.flash('success');
+  res.locals.error=req.flash('error');
+  res.locals.currUser=req.user;
+  // console.log(success);
+  next();
+})
+
+
 //////
 app.get("/", (req, res) => {
   res.send("port is working");
 });
 
-const validateListing=(req,res,next)=>{
-  let {error}=listingSchema.validate(req.body);
-  if(error){
-    let errMsg=error.details.map((el)=>el.message).join(',');
-    throw new ExpressError(400,'validation fail');
-  }else{
-    next();
-  }
-}
-const validateReview=(req,res,next)=>{
-  let {error}=reviewSchema.validate(req.body);
-  if(error){
-    let errMsg=error.details.map((el)=>el.message).join(',');
-    throw new ExpressError(400,'validation fail');
-  }else{
-    next();
-  }
-}
+// pass router
+app.use("/listings", listingRouter);
+app.use("/listings/:id/review", reviewRouter);
+app.use("/", userRouter);
 
 
-app.get("/listings", wrapAsync(async(req, res) => {
-  const allListings = await Listing.find({});
-  res.render("listings/index.ejs", { allListings });
-})
-);
 
-
-// part 7 new route
-app.get("/listings/new", (req, res) => {
-  res.render("listings/new.ejs");
-}); //new wale ko part 6 wale se niche rakhenge to error aayega kyoki wo new ko as a _id search kr rha he
-
-//part 6
-app.get("/listings/:id/show",wrapAsync( async (req, res) => {
-  let { id } = req.params;
-  const listing = await Listing.findById(id).populate('reviews');
-  console.log(listing);
-  res.render("listings/show.ejs", { listing });
-})
-);
-
-//part 7
-app.post("/listings",validateListing, wrapAsync(async(req,res,next) => {
- 
-    const newlisting= new Listing(req.body.listing);
-    await newlisting.save()
-     .then((res)=>console.log('success'));
-    res.redirect('/listings') 
-})
-);
-
-//part 8
-app.get('/listings/:id/edit',wrapAsync(async(req,res)=>{
-  let {id}=req.params;
-  let listing=await Listing.findById(id);
-  console.log(listing);
-   res.render('listings/edit.ejs',{listing})
-})
-);
-app.put('/listings/:id',validateListing,wrapAsync(async(req,res)=>{
-  let {id}=req.params;
-  let listing=req.body.listing;
-  await Listing.findByIdAndUpdate(id,{...listing});
-  res.redirect('/listings');
-})
-);
-
-app.delete("/listings/:id",wrapAsync(async(req,res)=>{
-    let {id}=req.params;
-    await Listing.findByIdAndDelete(id);
-    res.redirect('/listings');
-})
-);
-
-//reviews post 
-app.post('/listings/:id/reviews',validateReview,wrapAsync(async(req,res)=>{
-  let listing=await Listing.findById(req.params.id);
-  let newReview=new Review(req.body.review);
-
-  listing.reviews.push(newReview);
-
-  await newReview.save()
-  await listing.save();
-  console.log('review add successfull')
-  res.redirect(`/listings/${listing._id}/show`);
-}
-));
-
-//review delete route
-app.delete("/listings/:id/review/:reviewId",wrapAsync(async(req,res)=>{
-  let {id,reviewId}=req.params;
-  await Listing.findByIdAndUpdate(id,{$pull:{reviews:reviewId}})
-  await Review.findByIdAndDelete(reviewId);
-  res.redirect(`/listings/${id}/show`);
-}))
-
-
-// app.get("/testListing",async(req,res)=>{
-//     let sampleListing=new Listing({
-//         title:'my new villa',
-//         discription:'by the beach',
-//         price:1200,
-//         location:'calangute,goa',
-//         country:'india',
-//     })
-//     await sampleListing.save()
-//     console.log("sample was saved");
-//     res.send("sending success")
-// })
-
-//middleware error show in server side error 
-app.all('*',(req,res,next)=>{
-  next(new ExpressError(404,'Page Not Found'))
-})
-app.use((err,req,res,next)=>{
+//middleware error show in server side error
+app.all("*", (req, res, next) => {
+  next(new ExpressError(404, "Page Not Found"));
+});
+app.use((err, req, res, next) => {
   console.log(err);
-  let{statusCode=500,message="Something Went Wrong"}=err;
-  res.status(statusCode).render('listings/error.ejs',{err});
-})
+  let { statusCode = 500, message = "Something Went Wrong" } = err;
+  res.status(statusCode).render("listings/error.ejs", { err });
+});
 
+
+
+
+//port listing
 app.listen(8080, () => {
   console.log("port is listining at 8080");
 });
