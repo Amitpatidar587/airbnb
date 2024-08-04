@@ -74,7 +74,7 @@ app.get("/", (req, res) => {
 
 // pass router
 app.use("/listings", listingRouter);
-app.use("/listings/:id/review", reviewRouter);
+app.use("/listings/:id/reviews", reviewRouter);
 app.use("/", userRouter);
 
 
